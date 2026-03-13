@@ -1,0 +1,9 @@
+{
+    "name": "astrbot_plugin_mocode",
+    "display_name": "Mocode 代码运行器",
+    "description": "在线运行代码插件，支持多种编程语言",
+    "author": "NumInvis",
+    "social_link": "https://github.com/NumInvis",
+    "repository": "https://github.com/NumInvis/astrbot_plugin_Mocode",
+    "tags": ["代码", "编程", "运行"]
+}

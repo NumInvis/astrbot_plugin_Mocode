@@ -1,0 +1,25 @@
+name: astrbot_plugin_mocode
+desc: Mocode - AstrBot 在线运行代码插件，支持多种编程语言
+help: |
+  📢 Mocode 代码运行器使用说明 (v1.0.0)
+
+  【使用格式】
+  code [语言] [输入(可选)]
+  [代码]
+
+  【示例】
+  code py
+  print("Hello World!")
+
+  【带输入示例】
+  code py 你好
+  print(input())
+
+  【支持的语言】
+  Python(py), JavaScript(js), TypeScript(ts), Java, C, C++, Go(golang), Rust(rs),
+  Ruby(rb), PHP, Bash(sh), Lua, Perl(pl), C#(cs), F#(fs), VB.NET(vb), R,
+  Scala, Swift, Kotlin(kt), Clojure(clj), Haskell(hs), Erlang(erl),
+  Elixir(ex), OCaml(ml), Julia, Nim, Crystal, D
+version: "1.0.0"
+author: NumInvis
+repo: https://github.com/NumInvis/astrbot_plugin_Mocode

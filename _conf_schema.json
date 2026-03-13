@@ -1,0 +1,26 @@
+{
+  "glot_api_url": {
+    "description": "Glot API 地址",
+    "type": "string",
+    "hint": "用于运行代码的 API 服务地址",
+    "default": "https://glot.io/api"
+  },
+  "glot_access_token": {
+    "description": "Glot API 访问令牌",
+    "type": "string",
+    "hint": "从 glot.io 获取的访问令牌，留空使用公共端点（可能不可用）",
+    "default": ""
+  },
+  "admin_only": {
+    "description": "仅管理员使用",
+    "type": "bool",
+    "hint": "是否只允许管理员使用此插件",
+    "default": false
+  },
+  "timeout_seconds": {
+    "description": "超时时间（秒）",
+    "type": "int",
+    "hint": "代码执行的超时时间，单位为秒",
+    "default": 30
+  }
+}
