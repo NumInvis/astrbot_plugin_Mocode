@@ -268,17 +268,18 @@ class MocodePlugin(Star):
             # --rm: 运行后删除容器
             # --read-only: 只读文件系统
             # --network none: 禁止网络
-            # --memory 128m: 限制内存
-            # --cpus 0.5: 限制 CPU
+            # --memory 8m: 限制内存（8MB，足够运行简单代码）
+            # --cpus 0.1: 限制 CPU（10%）
+            # --pids-limit 10: 限制进程数
             # -v: 挂载临时目录
             docker_cmd = [
                 "docker", "run", "--rm",
                 "--read-only",
                 "--network", "none",
-                "--memory", "128m",
-                "--memory-swap", "128m",
-                "--cpus", "0.5",
-                "--pids-limit", "50",
+                "--memory", "8m",
+                "--memory-swap", "8m",
+                "--cpus", "0.1",
+                "--pids-limit", "10",
                 "-v", f"{temp_dir}:/code:ro",
                 "-w", "/code",
                 "python:3.12-slim",

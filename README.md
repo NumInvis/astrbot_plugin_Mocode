@@ -29,10 +29,12 @@
 **Docker 沙箱限制：**
 - 只读文件系统（--read-only）
 - 禁止网络访问（--network none）
-- 内存限制 128MB（--memory 128m）
-- CPU 限制 0.5 核（--cpus 0.5）
-- 进程数限制 50（--pids-limit 50）
+- 内存限制 8MB（--memory 8m）
+- CPU 限制 10%（--cpus 0.1）
+- 进程数限制 10（--pids-limit 10）
 - 运行后自动删除容器（--rm）
+
+> 资源限制非常严格，仅适合运行简单代码
 
 ## 使用
 
