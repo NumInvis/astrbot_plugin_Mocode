@@ -353,23 +353,6 @@ class MocodePlugin(Star):
             return {"stdout": "", "stderr": "", "error": "执行超时"}
         except Exception as e:
             return {"stdout": "", "stderr": "", "error": f"请求错误: {str(e)}"}
-                    
-                    return {
-                        "stdout": stdout,
-                        "stderr": stderr,
-                        "error": None
-                    }
-                else:
-                    error_msg = result.get("message", f"请求失败: {response.status}")
-                    return {
-                        "stdout": "",
-                        "stderr": "",
-                        "error": error_msg
-                    }
-        except asyncio.TimeoutError:
-            return {"stdout": "", "stderr": "", "error": "执行超时"}
-        except Exception as e:
-            return {"stdout": "", "stderr": "", "error": f"请求错误: {str(e)}"}
 
     def _build_result_message(self, result: Dict) -> str:
         """构建结果消息"""
