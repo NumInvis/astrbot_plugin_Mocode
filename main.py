@@ -249,7 +249,6 @@ class MocodePlugin(Star):
         """使用 Docker 沙箱执行 Python 代码"""
         import tempfile
         import os
-        import subprocess
         
         # 检查 Docker 是否可用，不可用则尝试安装
         docker_available = await self._check_and_install_docker()
@@ -294,24 +293,38 @@ class MocodePlugin(Star):
             ]
             
             try:
-                result = subprocess.run(
-                    docker_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=self.timeout_seconds
+                # 使用 asyncio 创建子进程（非阻塞）
+                proc = await asyncio.create_subprocess_exec(
+                    *docker_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
                 )
                 
-                return {
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                    "error": None
-                }
-            except subprocess.TimeoutExpired:
-                return {
-                    "stdout": "",
-                    "stderr": f"执行超时（超过 {self.timeout_seconds} 秒）",
-                    "error": None
-                }
+                # 等待执行完成，带超时
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        proc.communicate(),
+                        timeout=self.timeout_seconds
+                    )
+                    
+                    return {
+                        "stdout": stdout.decode('utf-8', errors='replace'),
+                        "stderr": stderr.decode('utf-8', errors='replace'),
+                        "error": None
+                    }
+                except asyncio.TimeoutError:
+                    # 超时，终止进程
+                    try:
+                        proc.kill()
+                        await proc.wait()
+                    except:
+                        pass
+                    return {
+                        "stdout": "",
+                        "stderr": f"执行超时（超过 {self.timeout_seconds} 秒）",
+                        "error": None
+                    }
+                
             except Exception as e:
                 return {
                     "stdout": "",
@@ -328,18 +341,17 @@ class MocodePlugin(Star):
     
     async def _check_and_install_docker(self) -> bool:
         """检查 Docker 是否可用，不可用则尝试安装"""
-        import subprocess
-        
         # 检查 Docker 是否已安装
         try:
-            result = subprocess.run(
-                ["docker", "version"], 
-                capture_output=True, 
-                timeout=5
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "version",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
-            if result.returncode == 0:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
+            if proc.returncode == 0:
                 return True
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except (FileNotFoundError, asyncio.TimeoutError):
             pass
         
         # Docker 未安装，尝试自动安装
@@ -352,29 +364,25 @@ class MocodePlugin(Star):
             
             if "linux" in system:
                 # Linux 系统使用官方安装脚本
-                install_cmd = [
-                    "sh", "-c",
-                    "curl -fsSL https://get.docker.com | sh"
-                ]
-                
-                result = subprocess.run(
-                    install_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=120
+                proc = await asyncio.create_subprocess_shell(
+                    "curl -fsSL https://get.docker.com | sh",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
                 )
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
                 
-                if result.returncode == 0:
+                if proc.returncode == 0:
                     logger.info("Docker 安装成功")
                     # 启动 Docker 服务
-                    subprocess.run(
-                        ["systemctl", "start", "docker"],
-                        capture_output=True,
-                        timeout=10
+                    proc = await asyncio.create_subprocess_exec(
+                        "systemctl", "start", "docker",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
                     )
+                    await asyncio.wait_for(proc.communicate(), timeout=10)
                     return True
                 else:
-                    logger.error(f"Docker 安装失败: {result.stderr}")
+                    logger.error(f"Docker 安装失败: {stderr.decode()}")
                     return False
             else:
                 logger.error(f"不支持自动安装 Docker 的操作系统: {system}")
@@ -386,33 +394,31 @@ class MocodePlugin(Star):
     
     async def _ensure_python_image(self):
         """确保 Python Docker 镜像存在"""
-        import subprocess
-        
         try:
             # 检查镜像是否存在
-            result = subprocess.run(
-                ["docker", "images", "-q", "python:3.12-slim"],
-                capture_output=True,
-                text=True,
-                timeout=10
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "images", "-q", "python:3.12-slim",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
             
-            if result.stdout.strip():
+            if stdout.strip():
                 return  # 镜像已存在
             
             # 拉取镜像
             logger.info("拉取 Python Docker 镜像...")
-            result = subprocess.run(
-                ["docker", "pull", "python:3.12-slim"],
-                capture_output=True,
-                text=True,
-                timeout=300
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "pull", "python:3.12-slim",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
             
-            if result.returncode == 0:
+            if proc.returncode == 0:
                 logger.info("Python 镜像拉取成功")
             else:
-                logger.error(f"Python 镜像拉取失败: {result.stderr}")
+                logger.error(f"Python 镜像拉取失败: {stderr.decode()}")
                 
         except Exception as e:
             logger.error(f"检查/拉取镜像时出错: {e}")
