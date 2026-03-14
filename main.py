@@ -354,8 +354,8 @@ class MocodePlugin(Star):
         except (FileNotFoundError, asyncio.TimeoutError):
             pass
         except Exception as e:
-            logger.error(f"检查 Docker 时出错: {e}")
-        
+            logger.debug(f"检查 Docker 时出错: {e}")
+
         return False
     
     async def _ensure_python_image(self):

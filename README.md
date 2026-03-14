@@ -1,6 +1,6 @@
 # Mocode - AstrBot 在线运行代码插件
 
-支持 Python 代码本地安全执行
+支持 Python 代码在 Docker 沙箱中安全执行
 
 ## 来源与致敬
 
@@ -14,6 +14,40 @@
    ```
 
 2. 点击安装即可
+
+## 系统要求
+
+**必须在宿主机上安装 Docker**
+
+### 方案 1：挂载 Docker Socket（推荐）
+
+如果 AstrBot 运行在 Docker 容器中，启动时需要挂载 Docker socket：
+
+```bash
+docker run -d \
+  --name astrbot \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /path/to/astrbot/data:/AstrBot/data \
+  -p 6185:6185 \
+  soulter/astrbot:latest
+```
+
+### 方案 2：直接运行 AstrBot
+
+如果直接在宿主机上运行 AstrBot（不使用 Docker），只需确保宿主机已安装 Docker：
+
+```bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install -y docker.io
+
+# CentOS/RHEL
+sudo yum install -y docker
+sudo systemctl start docker
+
+# 或使用官方安装脚本
+curl -fsSL https://get.docker.com | sh
+```
 
 ## 配置
 
@@ -36,53 +70,59 @@
 
 > 资源限制非常严格，仅适合运行简单代码
 
-**系统要求：**
-- **必须在宿主机上安装 Docker**
-- 如果 AstrBot 运行在 Docker 容器中，需要挂载 Docker socket（`-v /var/run/docker.sock:/var/run/docker.sock`）
-
 ## 使用
 
-### 基本用法
+### 基本命令格式
 ```
-code [语言] [输入(可选)]
+/code [语言] [输入(可选)]
 [代码]
 ```
 
-### 示例
+### 使用示例
 
-运行 Python Hello World：
+**1. 运行 Python Hello World：**
 ```
 /code py
 print("Hello World!")
 ```
 
-带输入的 Python 示例：
+**2. 带输入的 Python 示例：**
 ```
 /code py 你好，世界！
 print(input())
 ```
 
-运行 JavaScript：
-```
-/code js
-console.log("Hello from JavaScript!");
-```
-
 ### 支持的语言
 
-- **Python** (py/python) - 本地安全执行
+| 别名 | 语言 |
+|------|------|
+| py / python | Python |
 
-> 其他语言（JavaScript、Java、C/C++ 等）的在线 API 已不可用，暂时只支持 Python
+> 目前仅支持 Python，其他语言的在线 API 已不可用
 
-## 命令
+### 命令列表
 
 - `/code` - 运行代码
 - `/mocode` - 查看帮助信息
 
+## 工作原理
+
+插件使用 Docker 容器来运行代码：
+1. 检查 Docker 是否可用
+2. 自动拉取 python:3.12-slim 镜像（如果不存在）
+3. 在临时目录中写入代码文件
+4. 启动 Docker 容器运行代码
+5. 捕获标准输出和标准错误
+6. 返回执行结果
+
+**安全特性：**
+- 代码在隔离的 Docker 容器中运行
+- 只读文件系统防止修改宿主机文件
+- 网络隔离防止访问外部网络
+- 严格的资源限制（内存、CPU、进程数）
+- 超时控制防止无限循环
+
 ## 致谢
 
 - 原项目：[nonebot-plugin-code](https://github.com/yzyyz1387/nonebot_plugin_code)
-
-## License
-
-MIT License
+- Docker 沙箱技术
