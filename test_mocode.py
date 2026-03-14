@@ -204,7 +204,7 @@ async def run_code_in_docker(code: str, input_text: str, timeout: int):
     finally:
         try:
             shutil.rmtree(temp_dir)
-        except:
+        except Exception:
             pass
 
 # 运行测试

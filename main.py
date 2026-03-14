@@ -212,14 +212,7 @@ class MocodePlugin(Star):
         code_start_index = 1
         
         if len(parts) >= 3:
-            # 检查第三个部分是否是输入
-            # 如果第二行开始有代码，那么第三部分可能是输入
-            if len(lines) > 1 and lines[1].strip():
-                input_text = ' '.join(parts[2:])
-                code_start_index = 1
-            else:
-                input_text = ' '.join(parts[2:])
-                code_start_index = 1
+            input_text = ' '.join(parts[2:])
 
         # 解析代码
         code_lines = lines[code_start_index:]
@@ -260,9 +253,12 @@ class MocodePlugin(Star):
     async def _run_python(self, booter, code: str, input_text: str = "") -> Dict:
         """使用 AstrBot 本地沙箱执行 Python 代码"""
         try:
-            # 如果提供了输入，修改代码以处理输入
+            import base64
+            
+            # 如果提供了输入，使用 Base64 编码避免注入
             if input_text:
-                code = f'import sys\nfrom io import StringIO\nsys.stdin = StringIO("""{input_text}""")\n' + code
+                input_b64 = base64.b64encode(input_text.encode('utf-8')).decode('utf-8')
+                code = f'import sys\nimport base64\nfrom io import StringIO\ninput_text = base64.b64decode("{input_b64}").decode("utf-8")\nsys.stdin = StringIO(input_text)\n' + code
             
             # 执行代码
             result = await booter.python.exec(code, timeout=self.timeout_seconds)
@@ -289,14 +285,18 @@ class MocodePlugin(Star):
     
     async def _run_javascript(self, booter, code: str, input_text: str = "") -> Dict:
         """使用 AstrBot 本地沙箱执行 JavaScript 代码"""
+        import tempfile
+        import os
+        import base64
+        
+        temp_file = None
         try:
-            # 将输入写入临时文件
-            import tempfile
-            import os
-            
+            # 创建临时文件
             with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
+                # 如果提供了输入，使用 Base64 编码避免注入
                 if input_text:
-                    f.write(f'const input = "{input_text}";\n')
+                    input_b64 = base64.b64encode(input_text.encode('utf-8')).decode('utf-8')
+                    f.write(f'const input = Buffer.from("{input_b64}", "base64").toString("utf-8");\n')
                 f.write(code)
                 temp_file = f.name
             
@@ -305,12 +305,6 @@ class MocodePlugin(Star):
                 f"node {temp_file}",
                 timeout=self.timeout_seconds
             )
-            
-            # 清理临时文件
-            try:
-                os.unlink(temp_file)
-            except:
-                pass
             
             return {
                 "stdout": result.get("stdout", ""),
@@ -325,13 +319,24 @@ class MocodePlugin(Star):
                 "stderr": "",
                 "error": f"执行错误: {str(e)}"
             }
+        finally:
+            # 确保临时文件被删除
+            if temp_file:
+                try:
+                    os.unlink(temp_file)
+                except Exception:
+                    pass
     
     async def _run_bash(self, booter, code: str, input_text: str = "") -> Dict:
         """使用 AstrBot 本地沙箱执行 Bash 代码"""
         try:
+            import base64
+            
             # 构建命令
             if input_text:
-                command = f'echo "{input_text}" | {code}'
+                # 使用 Base64 编码避免注入
+                input_b64 = base64.b64encode(input_text.encode('utf-8')).decode('utf-8')
+                command = f'echo "{input_b64}" | base64 -d | {code}'
             else:
                 command = code
             
