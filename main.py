@@ -246,9 +246,26 @@ class MocodePlugin(Star):
         return await self._run_python_local(code, input_text)
     
     async def _run_python_local(self, code: str, input_text: str = "") -> Dict:
+        """执行 Python 代码 - 优先使用 Docker 沙箱，不可用时回退到本地执行"""
+        # 首先尝试 Docker 沙箱
+        docker_result = await self._run_docker_sandbox(code, input_text)
+        if docker_result.get("error") != "Docker 未安装或不可用":
+            return docker_result
+        
+        # Docker 不可用，回退到本地执行
+        return await self._run_local_sandbox(code, input_text)
+    
+    async def _run_docker_sandbox(self, code: str, input_text: str = "") -> Dict:
         """使用 Docker 沙箱执行 Python 代码"""
         import tempfile
         import os
+        import subprocess
+        
+        # 检查 Docker 是否可用
+        try:
+            subprocess.run(["docker", "version"], capture_output=True, timeout=5)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return {"stdout": "", "stderr": "", "error": "Docker 未安装或不可用"}
         
         # 创建临时目录
         temp_dir = tempfile.mkdtemp(prefix="mocode_")
@@ -265,13 +282,6 @@ class MocodePlugin(Star):
                 f.write(input_text or "")
             
             # 构建 Docker 命令
-            # --rm: 运行后删除容器
-            # --read-only: 只读文件系统
-            # --network none: 禁止网络
-            # --memory 8m: 限制内存（8MB，足够运行简单代码）
-            # --cpus 0.1: 限制 CPU（10%）
-            # --pids-limit 10: 限制进程数
-            # -v: 挂载临时目录
             docker_cmd = [
                 "docker", "run", "--rm",
                 "--read-only",
@@ -287,8 +297,6 @@ class MocodePlugin(Star):
                 f"import sys; sys.stdin = open('/code/input.txt'); exec(open('/code/main.py').read())"
             ]
             
-            # 执行 Docker 命令
-            import subprocess
             try:
                 result = subprocess.run(
                     docker_cmd,
@@ -308,12 +316,6 @@ class MocodePlugin(Star):
                     "stderr": f"执行超时（超过 {self.timeout_seconds} 秒）",
                     "error": None
                 }
-            except FileNotFoundError:
-                return {
-                    "stdout": "",
-                    "stderr": "",
-                    "error": "Docker 未安装或不可用"
-                }
             except Exception as e:
                 return {
                     "stdout": "",
@@ -327,6 +329,101 @@ class MocodePlugin(Star):
                 shutil.rmtree(temp_dir)
             except:
                 pass
+    
+    async def _run_local_sandbox(self, code: str, input_text: str = "") -> Dict:
+        """本地沙箱执行（Docker 不可用时回退）"""
+        import io
+        import threading
+        
+        # 定义允许的内置函数
+        safe_builtins = {
+            'abs': abs, 'all': all, 'any': any, 'ascii': ascii,
+            'bin': bin, 'bool': bool, 'bytearray': bytearray, 'bytes': bytes,
+            'callable': callable, 'chr': chr, 'classmethod': classmethod,
+            'complex': complex, 'delattr': delattr, 'dict': dict, 'dir': dir,
+            'divmod': divmod, 'enumerate': enumerate, 'filter': filter,
+            'float': float, 'format': format, 'frozenset': frozenset,
+            'getattr': getattr, 'globals': globals, 'hasattr': hasattr,
+            'hash': hash, 'hex': hex, 'id': id, 'int': int,
+            'isinstance': isinstance, 'issubclass': issubclass, 'iter': iter,
+            'len': len, 'list': list, 'locals': locals, 'map': map,
+            'max': max, 'memoryview': memoryview, 'min': min, 'next': next,
+            'object': object, 'oct': oct, 'ord': ord, 'pow': pow,
+            'print': print, 'property': property, 'range': range,
+            'repr': repr, 'reversed': reversed, 'round': round, 'set': set,
+            'setattr': setattr, 'slice': slice, 'sorted': sorted,
+            'staticmethod': staticmethod, 'str': str, 'sum': sum,
+            'super': super, 'tuple': tuple, 'type': type, 'vars': vars,
+            'zip': zip, '__import__': lambda x: None
+        }
+        
+        safe_globals = {
+            '__builtins__': safe_builtins,
+            '__name__': '__main__',
+            '__doc__': None,
+            '__package__': None
+        }
+        
+        stdout_buffer = io.StringIO()
+        stderr_buffer = io.StringIO()
+        
+        if input_text:
+            stdin_buffer = io.StringIO(input_text)
+        else:
+            stdin_buffer = io.StringIO()
+        
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        old_stdin = sys.stdin
+        
+        result_container = {}
+        
+        def execute_code():
+            try:
+                sys.stdout = stdout_buffer
+                sys.stderr = stderr_buffer
+                sys.stdin = stdin_buffer
+                exec(code, safe_globals, {})
+                result_container['success'] = True
+            except Exception as e:
+                result_container['error'] = str(e)
+        
+        try:
+            thread = threading.Thread(target=execute_code)
+            thread.daemon = True
+            thread.start()
+            thread.join(timeout=self.timeout_seconds)
+            
+            if thread.is_alive():
+                return {
+                    "stdout": stdout_buffer.getvalue(),
+                    "stderr": "执行超时（超过 {} 秒）".format(self.timeout_seconds),
+                    "error": None
+                }
+            
+            if 'error' in result_container:
+                return {
+                    "stdout": stdout_buffer.getvalue(),
+                    "stderr": result_container['error'],
+                    "error": None
+                }
+            
+            return {
+                "stdout": stdout_buffer.getvalue(),
+                "stderr": stderr_buffer.getvalue(),
+                "error": None
+            }
+            
+        except Exception as e:
+            return {
+                "stdout": stdout_buffer.getvalue(),
+                "stderr": stderr_buffer.getvalue() + "\n" + str(e),
+                "error": None
+            }
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+            sys.stdin = old_stdin
 
     def _build_result_message(self, result: Dict) -> str:
         """构建结果消息"""
