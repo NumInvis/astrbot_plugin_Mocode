@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- 背景圆形 -->
+  <circle cx="100" cy="100" r="90" fill="#4A90D9"/>
+  
+  <!-- 代码符号 -->
+  <text x="100" y="125" font-family="monospace" font-size="80" font-weight="bold" fill="white" text-anchor="middle">&lt;/&gt;</text>
+  
+  <!-- M 字母 -->
+  <text x="100" y="70" font-family="Arial, sans-serif" font-size="40" font-weight="bold" fill="#FFD700" text-anchor="middle">M</text>
+  
+  <!-- 装饰点 -->
+  <circle cx="40" cy="100" r="8" fill="#90EE90"/>
+  <circle cx="160" cy="100" r="8" fill="#FF6B6B"/>
+</svg>
