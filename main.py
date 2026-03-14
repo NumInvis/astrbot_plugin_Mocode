@@ -250,13 +250,13 @@ class MocodePlugin(Star):
         import tempfile
         import os
         
-        # 检查 Docker 是否可用，不可用则尝试安装
+        # 检查 Docker 是否可用
         docker_available = await self._check_and_install_docker()
         if not docker_available:
             return {
-                "stdout": "", 
-                "stderr": "", 
-                "error": "Docker 未安装且自动安装失败。请手动安装 Docker: https://docs.docker.com/get-docker/"
+                "stdout": "",
+                "stderr": "",
+                "error": "Docker 未安装。请在宿主机上安装 Docker: https://docs.docker.com/get-docker/"
             }
         
         # 确保 Python 镜像存在
@@ -340,7 +340,7 @@ class MocodePlugin(Star):
                 pass
     
     async def _check_and_install_docker(self) -> bool:
-        """检查 Docker 是否可用，不可用则尝试安装"""
+        """检查 Docker 是否可用"""
         # 检查 Docker 是否已安装
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -353,44 +353,10 @@ class MocodePlugin(Star):
                 return True
         except (FileNotFoundError, asyncio.TimeoutError):
             pass
-        
-        # Docker 未安装，尝试自动安装
-        logger.info("Docker 未安装，尝试自动安装...")
-        
-        try:
-            # 检测操作系统
-            import platform
-            system = platform.system().lower()
-            
-            if "linux" in system:
-                # Linux 系统使用官方安装脚本
-                proc = await asyncio.create_subprocess_shell(
-                    "curl -fsSL https://get.docker.com | sh",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-                
-                if proc.returncode == 0:
-                    logger.info("Docker 安装成功")
-                    # 启动 Docker 服务
-                    proc = await asyncio.create_subprocess_exec(
-                        "systemctl", "start", "docker",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    await asyncio.wait_for(proc.communicate(), timeout=10)
-                    return True
-                else:
-                    logger.error(f"Docker 安装失败: {stderr.decode()}")
-                    return False
-            else:
-                logger.error(f"不支持自动安装 Docker 的操作系统: {system}")
-                return False
-                
         except Exception as e:
-            logger.error(f"Docker 安装过程出错: {e}")
-            return False
+            logger.error(f"检查 Docker 时出错: {e}")
+        
+        return False
     
     async def _ensure_python_image(self):
         """确保 Python Docker 镜像存在"""

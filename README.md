@@ -23,7 +23,6 @@
 
 **注意**：本插件使用 **Docker 沙箱** 执行 Python 代码
 - 仅支持 Python 语言
-- 自动安装 Docker（Linux 系统）
 - 自动拉取 Python 镜像
 - 执行超时时间可配置
 
@@ -38,8 +37,8 @@
 > 资源限制非常严格，仅适合运行简单代码
 
 **系统要求：**
-- Linux 系统（支持自动安装 Docker）
-- 或已安装 Docker 的其他系统
+- **必须在宿主机上安装 Docker**
+- 如果 AstrBot 运行在 Docker 容器中，需要挂载 Docker socket（`-v /var/run/docker.sock:/var/run/docker.sock`）
 
 ## 使用
 
