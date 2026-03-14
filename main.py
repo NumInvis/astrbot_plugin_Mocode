@@ -246,148 +246,41 @@ class MocodePlugin(Star):
         return await self._run_python_local(code, input_text)
     
     async def _run_python_local(self, code: str, input_text: str = "") -> Dict:
-        """使用 Docker 沙箱执行 Python 代码"""
-        import tempfile
-        import os
-        
-        # 检查 Docker 是否可用
-        docker_available = await self._check_and_install_docker()
-        if not docker_available:
+        """使用 AstrBot 本地沙箱执行 Python 代码"""
+        try:
+            # 导入 AstrBot 的本地沙箱
+            from astrbot.core.computer.computer_client import get_local_booter
+            
+            # 获取本地沙箱启动器
+            booter = get_local_booter()
+            
+            # 如果提供了输入，修改代码以处理输入
+            if input_text:
+                # 将输入嵌入到代码中
+                code = f'import sys\nfrom io import StringIO\nsys.stdin = StringIO("""{input_text}""")\n' + code
+            
+            # 执行代码
+            result = await booter.python.exec(code, timeout=self.timeout_seconds)
+            
+            # 解析结果
+            data = result.get("data", {})
+            output = data.get("output", {})
+            error = data.get("error", "")
+            text = output.get("text", "")
+            
+            return {
+                "stdout": text,
+                "stderr": error,
+                "error": None
+            }
+            
+        except Exception as e:
+            logger.error(f"使用 AstrBot 沙箱执行代码时出错: {e}")
             return {
                 "stdout": "",
                 "stderr": "",
-                "error": "Docker 未安装。请在宿主机上安装 Docker: https://docs.docker.com/get-docker/"
+                "error": f"执行错误: {str(e)}"
             }
-        
-        # 确保 Python 镜像存在
-        await self._ensure_python_image()
-        
-        # 创建临时目录
-        temp_dir = tempfile.mkdtemp(prefix="mocode_")
-        
-        try:
-            # 写入代码文件
-            code_file = os.path.join(temp_dir, "main.py")
-            with open(code_file, 'w') as f:
-                f.write(code)
-            
-            # 写入输入文件
-            input_file = os.path.join(temp_dir, "input.txt")
-            with open(input_file, 'w') as f:
-                f.write(input_text or "")
-            
-            # 构建 Docker 命令
-            docker_cmd = [
-                "docker", "run", "--rm",
-                "--read-only",
-                "--network", "none",
-                "--memory", "8m",
-                "--memory-swap", "8m",
-                "--cpus", "0.1",
-                "--pids-limit", "10",
-                "-v", f"{temp_dir}:/code:ro",
-                "-w", "/code",
-                "python:3.12-slim",
-                "python", "-c",
-                f"import sys; sys.stdin = open('/code/input.txt'); exec(open('/code/main.py').read())"
-            ]
-            
-            try:
-                # 使用 asyncio 创建子进程（非阻塞）
-                proc = await asyncio.create_subprocess_exec(
-                    *docker_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                
-                # 等待执行完成，带超时
-                try:
-                    stdout, stderr = await asyncio.wait_for(
-                        proc.communicate(),
-                        timeout=self.timeout_seconds
-                    )
-                    
-                    return {
-                        "stdout": stdout.decode('utf-8', errors='replace'),
-                        "stderr": stderr.decode('utf-8', errors='replace'),
-                        "error": None
-                    }
-                except asyncio.TimeoutError:
-                    # 超时，终止进程
-                    try:
-                        proc.kill()
-                        await proc.wait()
-                    except:
-                        pass
-                    return {
-                        "stdout": "",
-                        "stderr": f"执行超时（超过 {self.timeout_seconds} 秒）",
-                        "error": None
-                    }
-                
-            except Exception as e:
-                return {
-                    "stdout": "",
-                    "stderr": "",
-                    "error": f"Docker 执行错误: {str(e)}"
-                }
-        finally:
-            # 清理临时目录
-            import shutil
-            try:
-                shutil.rmtree(temp_dir)
-            except:
-                pass
-    
-    async def _check_and_install_docker(self) -> bool:
-        """检查 Docker 是否可用"""
-        # 检查 Docker 是否已安装
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "docker", "version",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
-            if proc.returncode == 0:
-                return True
-        except (FileNotFoundError, asyncio.TimeoutError):
-            pass
-        except Exception as e:
-            logger.debug(f"检查 Docker 时出错: {e}")
-
-        return False
-    
-    async def _ensure_python_image(self):
-        """确保 Python Docker 镜像存在"""
-        try:
-            # 检查镜像是否存在
-            proc = await asyncio.create_subprocess_exec(
-                "docker", "images", "-q", "python:3.12-slim",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
-            
-            if stdout.strip():
-                return  # 镜像已存在
-            
-            # 拉取镜像
-            logger.info("拉取 Python Docker 镜像...")
-            proc = await asyncio.create_subprocess_exec(
-                "docker", "pull", "python:3.12-slim",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-            
-            if proc.returncode == 0:
-                logger.info("Python 镜像拉取成功")
-            else:
-                logger.error(f"Python 镜像拉取失败: {stderr.decode()}")
-                
-        except Exception as e:
-            logger.error(f"检查/拉取镜像时出错: {e}")
 
     def _build_result_message(self, result: Dict) -> str:
         """构建结果消息"""
