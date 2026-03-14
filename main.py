@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import re
+import sys
 from typing import Dict, Optional
 
 import aiohttp
@@ -245,74 +246,116 @@ class MocodePlugin(Star):
         return await self._run_python_local(code, input_text)
     
     async def _run_python_local(self, code: str, input_text: str = "") -> Dict:
-        """本地执行 Python 代码（安全沙箱）"""
-        import subprocess
-        import tempfile
-        import os
+        """本地执行 Python 代码（简单沙箱）"""
+        import io
+        import signal
         
-        # 安全检查：禁止危险操作
-        dangerous_keywords = [
-            'import os', 'import sys', 'import subprocess', 'import multiprocessing',
-            '__import__', 'eval(', 'exec(', 'compile(', 'open(', 'file(',
-            'os.system', 'os.popen', 'subprocess.call', 'subprocess.run',
-            'subprocess.Popen', 'input(', 'raw_input(', 
-            'import socket', 'import urllib', 'import requests',
-            'import ftplib', 'import telnetlib', 'import smtplib',
-            'import poplib', 'import imaplib', 'import nntplib',
-            'import sqlite3', 'import pymysql', 'import psycopg2',
-            'import pymongo', 'import redis', 'import memcache',
-            'shutil.rmtree', 'os.remove', 'os.unlink', 'os.rmdir',
-            'os.mkdir', 'os.makedirs', 'os.chmod', 'os.chown',
-            'os.rename', 'os.renames', 'os.link', 'os.symlink'
-        ]
+        # 定义允许的内置函数
+        safe_builtins = {
+            'abs': abs, 'all': all, 'any': any, 'ascii': ascii,
+            'bin': bin, 'bool': bool, 'bytearray': bytearray, 'bytes': bytes,
+            'callable': callable, 'chr': chr, 'classmethod': classmethod,
+            'complex': complex, 'delattr': delattr, 'dict': dict, 'dir': dir,
+            'divmod': divmod, 'enumerate': enumerate, 'filter': filter,
+            'float': float, 'format': format, 'frozenset': frozenset,
+            'getattr': getattr, 'globals': globals, 'hasattr': hasattr,
+            'hash': hash, 'hex': hex, 'id': id, 'int': int,
+            'isinstance': isinstance, 'issubclass': issubclass, 'iter': iter,
+            'len': len, 'list': list, 'locals': locals, 'map': map,
+            'max': max, 'memoryview': memoryview, 'min': min, 'next': next,
+            'object': object, 'oct': oct, 'ord': ord, 'pow': pow,
+            'print': print, 'property': property, 'range': range,
+            'repr': repr, 'reversed': reversed, 'round': round, 'set': set,
+            'setattr': setattr, 'slice': slice, 'sorted': sorted,
+            'staticmethod': staticmethod, 'str': str, 'sum': sum,
+            'super': super, 'tuple': tuple, 'type': type, 'vars': vars,
+            'zip': zip, '__import__': lambda x: None  # 禁止导入
+        }
         
-        code_lower = code.lower()
-        for keyword in dangerous_keywords:
-            if keyword in code_lower:
-                return {
-                    "stdout": "", 
-                    "stderr": f"安全警告：代码包含危险操作 '{keyword}'，已被禁止执行", 
-                    "error": None
-                }
+        # 创建受限的执行环境
+        safe_globals = {
+            '__builtins__': safe_builtins,
+            '__name__': '__main__',
+            '__doc__': None,
+            '__package__': None
+        }
+        
+        # 捕获输出
+        stdout_buffer = io.StringIO()
+        stderr_buffer = io.StringIO()
+        
+        # 重定向输入
+        if input_text:
+            stdin_buffer = io.StringIO(input_text)
+        else:
+            stdin_buffer = io.StringIO()
+        
+        # 保存原始的标准输入输出
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        old_stdin = sys.stdin
         
         try:
-            # 创建临时文件
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-                # 写入标准输入处理代码
-                if input_text:
-                    f.write(f'import sys\n')
-                    f.write(f'sys.stdin = iter(["""{input_text}"""])\n\n')
-                f.write(code)
-                temp_file = f.name
+            # 设置超时
+            def timeout_handler(signum, frame):
+                raise TimeoutError("代码执行超时")
             
-            # 执行代码
-            try:
-                result = subprocess.run(
-                    ['python3', temp_file],
-                    capture_output=True,
-                    text=True,
-                    timeout=self.timeout_seconds,
-                    cwd='/tmp'  # 限制工作目录
-                )
-                
+            # 注意：signal 在 Windows 上不支持，这里用简单方式
+            import threading
+            
+            result_container = {}
+            
+            def execute_code():
+                try:
+                    # 重定向标准输入输出
+                    sys.stdout = stdout_buffer
+                    sys.stderr = stderr_buffer
+                    sys.stdin = stdin_buffer
+                    
+                    # 执行代码
+                    exec(code, safe_globals, {})
+                    
+                    result_container['success'] = True
+                except Exception as e:
+                    result_container['error'] = str(e)
+            
+            # 在子线程中执行
+            thread = threading.Thread(target=execute_code)
+            thread.daemon = True
+            thread.start()
+            thread.join(timeout=self.timeout_seconds)
+            
+            if thread.is_alive():
                 return {
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
+                    "stdout": stdout_buffer.getvalue(),
+                    "stderr": "执行超时（超过 {} 秒）".format(self.timeout_seconds),
                     "error": None
                 }
-            except subprocess.TimeoutExpired:
-                return {"stdout": "", "stderr": "", "error": "执行超时"}
-            except Exception as e:
-                return {"stdout": "", "stderr": "", "error": f"执行错误: {str(e)}"}
-            finally:
-                # 清理临时文件
-                try:
-                    os.unlink(temp_file)
-                except:
-                    pass
-                    
+            
+            if 'error' in result_container:
+                return {
+                    "stdout": stdout_buffer.getvalue(),
+                    "stderr": result_container['error'],
+                    "error": None
+                }
+            
+            return {
+                "stdout": stdout_buffer.getvalue(),
+                "stderr": stderr_buffer.getvalue(),
+                "error": None
+            }
+            
         except Exception as e:
-            return {"stdout": "", "stderr": "", "error": f"系统错误: {str(e)}"}
+            return {
+                "stdout": stdout_buffer.getvalue(),
+                "stderr": stderr_buffer.getvalue() + "\n" + str(e),
+                "error": None
+            }
+        finally:
+            # 恢复原始的标准输入输出
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+            sys.stdin = old_stdin
 
     def _build_result_message(self, result: Dict) -> str:
         """构建结果消息"""
