@@ -238,121 +238,81 @@ class MocodePlugin(Star):
         }
 
     async def _run_code(self, language: str, code: str, input_text: str = "") -> Dict:
-        """运行代码 - 使用 Judge0 API"""
-        if not self._session:
-            return {"error": "HTTP 会话未初始化"}
-
-        # Judge0 API 语言 ID 映射
-        JUDGE0_LANGUAGES = {
-            "python": 71,      # Python 3.8.1
-            "javascript": 63,  # JavaScript (Node.js 12.14.0)
-            "typescript": 74,  # TypeScript 3.7.4
-            "java": 62,        # Java (OpenJDK 13.0.1)
-            "c": 50,           # C (GCC 9.2.0)
-            "cpp": 54,         # C++ (GCC 9.2.0)
-            "go": 60,          # Go (1.13.5)
-            "rust": 73,        # Rust (1.40.0)
-            "ruby": 72,        # Ruby (2.7.0)
-            "php": 68,         # PHP (7.4.1)
-            "bash": 46,        # Bash (5.0.0)
-            "lua": 64,         # Lua (5.3.5)
-            "perl": 85,        # Perl (5.28.1)
-            "csharp": 51,      # C# (Mono 6.6.0.161)
-            "fsharp": 87,      # F# (Mono 10.2.3)
-            "vb.net": 84,      # VB.NET (Mono 10.2.3)
-            "r": 80,           # R (4.0.0)
-            "scala": 81,       # Scala (2.13.2)
-            "swift": 83,       # Swift (5.2.3)
-            "kotlin": 78,      # Kotlin (1.3.70)
-            "clojure": 86,     # Clojure (1.10.1)
-            "haskell": 61,     # Haskell (GHC 8.8.1)
-            "erlang": 52,      # Erlang (22.2)
-            "elixir": 57,      # Elixir (1.9.4)
-            "ocaml": 65,       # OCaml (4.09.0)
-            "julia": 70,       # Julia (1.4.0)
-            "nim": 66,         # Nim (1.0.4)
-            "crystal": 67,     # Crystal (0.32.1)
-            "d": 56            # D (DMD 2.089.1)
-        }
-
-        language_id = JUDGE0_LANGUAGES.get(language)
-        if not language_id:
-            return {"stdout": "", "stderr": "", "error": f"不支持的语言: {language}"}
-
-        payload = {
-            "language_id": language_id,
-            "source_code": code,
-            "stdin": input_text,
-            "cpu_time_limit": self.timeout_seconds,
-            "memory_limit": 128000  # 128MB
-        }
-
+        """运行代码 - 本地执行（仅支持 Python）"""
+        if language not in ["python", "py"]:
+            return {"stdout": "", "stderr": "", "error": "当前仅支持 Python 语言（其他语言的在线 API 已不可用）"}
+        
+        return await self._run_python_local(code, input_text)
+    
+    async def _run_python_local(self, code: str, input_text: str = "") -> Dict:
+        """本地执行 Python 代码（安全沙箱）"""
+        import subprocess
+        import tempfile
+        import os
+        
+        # 安全检查：禁止危险操作
+        dangerous_keywords = [
+            'import os', 'import sys', 'import subprocess', 'import multiprocessing',
+            '__import__', 'eval(', 'exec(', 'compile(', 'open(', 'file(',
+            'os.system', 'os.popen', 'subprocess.call', 'subprocess.run',
+            'subprocess.Popen', 'input(', 'raw_input(', 
+            'import socket', 'import urllib', 'import requests',
+            'import ftplib', 'import telnetlib', 'import smtplib',
+            'import poplib', 'import imaplib', 'import nntplib',
+            'import sqlite3', 'import pymysql', 'import psycopg2',
+            'import pymongo', 'import redis', 'import memcache',
+            'shutil.rmtree', 'os.remove', 'os.unlink', 'os.rmdir',
+            'os.mkdir', 'os.makedirs', 'os.chmod', 'os.chown',
+            'os.rename', 'os.renames', 'os.link', 'os.symlink'
+        ]
+        
+        code_lower = code.lower()
+        for keyword in dangerous_keywords:
+            if keyword in code_lower:
+                return {
+                    "stdout": "", 
+                    "stderr": f"安全警告：代码包含危险操作 '{keyword}'，已被禁止执行", 
+                    "error": None
+                }
+        
         try:
-            # 使用 Judge0 公共 API（无需 API Key，有速率限制）
-            url = "https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=false&wait=true"
+            # 创建临时文件
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+                # 写入标准输入处理代码
+                if input_text:
+                    f.write(f'import sys\n')
+                    f.write(f'sys.stdin = iter(["""{input_text}"""])\n\n')
+                f.write(code)
+                temp_file = f.name
             
-            headers = {
-                "Content-Type": "application/json"
-            }
-            
-            # 尝试多个 Judge0 实例
-            urls = [
-                "https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=false&wait=true",
-                "http://165.227.115.19:2358/submissions?base64_encoded=false&wait=true"
-            ]
-            
-            for url in urls:
+            # 执行代码
+            try:
+                result = subprocess.run(
+                    ['python3', temp_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout_seconds,
+                    cwd='/tmp'  # 限制工作目录
+                )
+                
+                return {
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "error": None
+                }
+            except subprocess.TimeoutExpired:
+                return {"stdout": "", "stderr": "", "error": "执行超时"}
+            except Exception as e:
+                return {"stdout": "", "stderr": "", "error": f"执行错误: {str(e)}"}
+            finally:
+                # 清理临时文件
                 try:
-                    async with self._session.post(
-                        url,
-                        json=payload,
-                        headers=headers,
-                        timeout=aiohttp.ClientTimeout(total=self.timeout_seconds + 5)
-                    ) as response:
-                        if response.status == 200:
-                            result = await response.json()
-                            
-                            stdout = result.get("stdout", "") or ""
-                            stderr = result.get("stderr", "") or ""
-                            compile_output = result.get("compile_output", "") or ""
-                            message = result.get("message", "")
-                            
-                            # 解码 base64
-                            import base64
-                            try:
-                                if stdout:
-                                    stdout = base64.b64decode(stdout).decode('utf-8', errors='replace')
-                                if stderr:
-                                    stderr = base64.b64decode(stderr).decode('utf-8', errors='replace')
-                                if compile_output:
-                                    compile_output = base64.b64decode(compile_output).decode('utf-8', errors='replace')
-                            except:
-                                pass
-                            
-                            # 合并编译错误和运行错误
-                            if compile_output:
-                                stderr = compile_output + "\n" + stderr
-                            
-                            # 检查状态
-                            status_id = result.get("status", {}).get("id", 0)
-                            if status_id != 3:  # 3 = Accepted
-                                if message:
-                                    stderr = message + "\n" + stderr
-                            
-                            return {
-                                "stdout": stdout,
-                                "stderr": stderr,
-                                "error": None
-                            }
-                except Exception as e:
-                    continue
-            
-            return {"stdout": "", "stderr": "", "error": "所有 Judge0 API 实例均不可用"}
-            
-        except asyncio.TimeoutError:
-            return {"stdout": "", "stderr": "", "error": "执行超时"}
+                    os.unlink(temp_file)
+                except:
+                    pass
+                    
         except Exception as e:
-            return {"stdout": "", "stderr": "", "error": f"请求错误: {str(e)}"}
+            return {"stdout": "", "stderr": "", "error": f"系统错误: {str(e)}"}
 
     def _build_result_message(self, result: Dict) -> str:
         """构建结果消息"""
