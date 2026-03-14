@@ -143,13 +143,48 @@ print(json.dumps(data, ensure_ascii=False, indent=2))
 }
 ```
 
+#### 5️⃣ JavaScript 示例
+```
+/code js
+const greeting = "Hello from JavaScript!";
+console.log(greeting);
+
+// 计算数组和
+const numbers = [1, 2, 3, 4, 5];
+const sum = numbers.reduce((a, b) => a + b, 0);
+console.log(`Sum: ${sum}`);
+```
+
+**输出：**
+```
+✅ 执行成功
+Hello from JavaScript!
+Sum: 15
+```
+
+#### 6️⃣ Bash 示例
+```
+/code bash
+echo "Hello from Bash!"
+echo "当前时间: $(date)"
+echo "当前目录: $(pwd)"
+```
+
+**输出：**
+```
+✅ 执行成功
+Hello from Bash!
+当前时间: Mon Jan  1 12:00:00 UTC 2024
+当前目录: /AstrBot
+```
+
 ## 🔧 支持的语言
 
-| 语言 | 别名 | 状态 |
-|------|------|------|
-| Python | `py`, `python` | ✅ 支持 |
-| JavaScript | `js`, `javascript` | ⏳ 计划中 |
-| Bash | `sh`, `bash` | ⏳ 计划中 |
+| 语言 | 别名 | 状态 | 执行方式 |
+|------|------|------|----------|
+| Python | `py`, `python` | ✅ 支持 | `LocalPythonTool` |
+| JavaScript | `js`, `javascript`, `node` | ✅ 支持 | `node` 命令 |
+| Bash | `sh`, `bash`, `shell` | ✅ 支持 | `bash` 命令 |
 
 ## 🛡️ 安全说明
 

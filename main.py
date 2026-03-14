@@ -6,19 +6,16 @@ AstrBot 在线运行代码插件
 """
 
 import asyncio
+import base64
 import json
 import os
-import re
-import sys
+import tempfile
 from typing import Dict, Optional
 
-import aiohttp
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.core.config.astrbot_config import AstrBotConfig
-from astrbot.core.message.message_event_result import MessageChain
-import astrbot.core.message.components as Comp
 
 from ._version import __version__, __plugin_name__, __author__, __plugin_desc__
 
@@ -29,82 +26,10 @@ LANGUAGE_ALIASES = {
     "python": "python",
     "js": "javascript",
     "javascript": "javascript",
-    "ts": "typescript",
-    "typescript": "typescript",
-    "java": "java",
-    "c": "c",
-    "cpp": "cpp",
-    "c++": "cpp",
-    "go": "go",
-    "golang": "go",
-    "rs": "rust",
-    "rust": "rust",
-    "rb": "ruby",
-    "ruby": "ruby",
-    "php": "php",
+    "node": "javascript",
     "sh": "bash",
     "bash": "bash",
-    "lua": "lua",
-    "pl": "perl",
-    "perl": "perl",
-    "cs": "csharp",
-    "c#": "csharp",
-    "fs": "fsharp",
-    "f#": "fsharp",
-    "vb": "vb.net",
-    "vb.net": "vb.net",
-    "r": "r",
-    "scala": "scala",
-    "swift": "swift",
-    "kt": "kotlin",
-    "kotlin": "kotlin",
-    "clj": "clojure",
-    "clojure": "clojure",
-    "hs": "haskell",
-    "haskell": "haskell",
-    "erl": "erlang",
-    "erlang": "erlang",
-    "ex": "elixir",
-    "elixir": "elixir",
-    "ml": "ocaml",
-    "ocaml": "ocaml",
-    "julia": "julia",
-    "nim": "nim",
-    "crystal": "crystal",
-    "d": "d"
-}
-
-# 文件扩展名映射
-FILE_EXTENSIONS = {
-    "python": "py",
-    "javascript": "js",
-    "typescript": "ts",
-    "java": "java",
-    "c": "c",
-    "cpp": "cpp",
-    "go": "go",
-    "rust": "rs",
-    "ruby": "rb",
-    "php": "php",
-    "bash": "sh",
-    "lua": "lua",
-    "perl": "pl",
-    "csharp": "cs",
-    "fsharp": "fs",
-    "vb.net": "vb",
-    "r": "r",
-    "scala": "scala",
-    "swift": "swift",
-    "kotlin": "kt",
-    "clojure": "clj",
-    "haskell": "hs",
-    "erlang": "erl",
-    "elixir": "ex",
-    "ocaml": "ml",
-    "julia": "jl",
-    "nim": "nim",
-    "crystal": "cr",
-    "d": "d"
+    "shell": "bash"
 }
 
 
@@ -115,69 +40,15 @@ class MocodePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
         self.config = config
-        self.context = context
-
-        # 数据目录
-        self.data_dir = str(StarTools.get_data_dir("astrbot_plugin_mocode"))
-        os.makedirs(self.data_dir, exist_ok=True)
-
-        # 配置文件路径
-        self.config_file = os.path.join(self.data_dir, "config.json")
 
         # 加载配置
-        self._load_config()
-
-        # HTTP 会话
-        self._session: Optional[aiohttp.ClientSession] = None
+        self.admin_only = False
+        self.timeout_seconds = 30
+        if config:
+            self.admin_only = config.get("mocode_admin_only", False)
+            self.timeout_seconds = config.get("mocode_timeout_seconds", 30)
 
         logger.info("Mocode 代码运行插件已加载")
-
-    def _load_config(self):
-        """加载配置文件"""
-        default_config = {
-            "glot_api_url": "https://glot.io/api",
-            "glot_access_token": "",
-            "admin_only": False,
-            "timeout_seconds": 30
-        }
-
-        if os.path.exists(self.config_file):
-            try:
-                with open(self.config_file, 'r', encoding='utf-8') as f:
-                    loaded_config = json.load(f)
-                    default_config.update(loaded_config)
-            except json.JSONDecodeError as e:
-                logger.error(f"配置文件JSON格式错误: {e}")
-            except Exception as e:
-                logger.error(f"加载配置文件失败: {e}")
-
-        if self.config:
-            default_config["glot_api_url"] = self.config.get(
-                "mocode_glot_api_url", default_config["glot_api_url"]
-            )
-            default_config["glot_access_token"] = self.config.get(
-                "mocode_glot_access_token", default_config["glot_access_token"]
-            )
-            default_config["admin_only"] = self.config.get(
-                "mocode_admin_only", default_config["admin_only"]
-            )
-            default_config["timeout_seconds"] = self.config.get(
-                "mocode_timeout_seconds", default_config["timeout_seconds"]
-            )
-
-        self.glot_api_url = default_config["glot_api_url"]
-        self.glot_access_token = default_config["glot_access_token"]
-        self.admin_only = default_config["admin_only"]
-        self.timeout_seconds = default_config["timeout_seconds"]
-
-    async def initialize(self):
-        """插件初始化时执行"""
-        self._session = aiohttp.ClientSession()
-
-    async def terminate(self):
-        """插件卸载时清理资源"""
-        if self._session:
-            await self._session.close()
 
     def _is_admin(self, event: AstrMessageEvent) -> bool:
         """检查用户是否为管理员"""
@@ -209,13 +80,11 @@ class MocodePlugin(Star):
         
         # 解析输入
         input_text = ""
-        code_start_index = 1
-        
         if len(parts) >= 3:
             input_text = ' '.join(parts[2:])
 
         # 解析代码
-        code_lines = lines[code_start_index:]
+        code_lines = lines[1:]
         code = '\n'.join(code_lines).strip()
 
         if not code:
@@ -234,131 +103,86 @@ class MocodePlugin(Star):
 
     async def _run_code(self, language: str, code: str, input_text: str = "") -> Dict:
         """运行代码 - 使用 AstrBot 本地沙箱"""
-        # 导入 AstrBot 的本地沙箱
         from astrbot.core.computer.computer_client import get_local_booter
         
-        # 获取本地沙箱启动器
         booter = get_local_booter()
         
-        # 根据语言选择执行方式
-        if language in ["python", "py"]:
+        if language == "python":
             return await self._run_python(booter, code, input_text)
-        elif language in ["javascript", "js", "node"]:
+        elif language == "javascript":
             return await self._run_javascript(booter, code, input_text)
-        elif language in ["bash", "sh", "shell"]:
+        elif language == "bash":
             return await self._run_bash(booter, code, input_text)
         else:
-            return {"stdout": "", "stderr": "", "error": f"不支持的语言: {language}。当前支持: Python, JavaScript, Bash"}
-    
+            return {"stdout": "", "stderr": "", "error": f"不支持的语言: {language}"}
+
     async def _run_python(self, booter, code: str, input_text: str = "") -> Dict:
         """使用 AstrBot 本地沙箱执行 Python 代码"""
         try:
-            import base64
-            
-            # 如果提供了输入，使用 Base64 编码避免注入
             if input_text:
                 input_b64 = base64.b64encode(input_text.encode('utf-8')).decode('utf-8')
                 code = f'import sys\nimport base64\nfrom io import StringIO\ninput_text = base64.b64decode("{input_b64}").decode("utf-8")\nsys.stdin = StringIO(input_text)\n' + code
             
-            # 执行代码
             result = await booter.python.exec(code, timeout=self.timeout_seconds)
             
-            # 解析结果
             data = result.get("data", {})
             output = data.get("output", {})
-            error = data.get("error", "")
-            text = output.get("text", "")
-            
             return {
-                "stdout": text,
-                "stderr": error,
+                "stdout": output.get("text", ""),
+                "stderr": data.get("error", ""),
                 "error": None
             }
-            
         except Exception as e:
             logger.error(f"执行 Python 代码时出错: {e}")
-            return {
-                "stdout": "",
-                "stderr": "",
-                "error": f"执行错误: {str(e)}"
-            }
-    
+            return {"stdout": "", "stderr": "", "error": f"执行错误: {str(e)}"}
+
     async def _run_javascript(self, booter, code: str, input_text: str = "") -> Dict:
         """使用 AstrBot 本地沙箱执行 JavaScript 代码"""
-        import tempfile
-        import os
-        import base64
-        
         temp_file = None
         try:
-            # 创建临时文件
             with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
-                # 如果提供了输入，使用 Base64 编码避免注入
                 if input_text:
                     input_b64 = base64.b64encode(input_text.encode('utf-8')).decode('utf-8')
                     f.write(f'const input = Buffer.from("{input_b64}", "base64").toString("utf-8");\n')
                 f.write(code)
                 temp_file = f.name
             
-            # 使用 shell 执行 node
-            result = await booter.shell.exec(
-                f"node {temp_file}",
-                timeout=self.timeout_seconds
-            )
+            result = await booter.shell.exec(f"node {temp_file}", timeout=self.timeout_seconds)
             
             return {
                 "stdout": result.get("stdout", ""),
                 "stderr": result.get("stderr", ""),
                 "error": None
             }
-            
         except Exception as e:
             logger.error(f"执行 JavaScript 代码时出错: {e}")
-            return {
-                "stdout": "",
-                "stderr": "",
-                "error": f"执行错误: {str(e)}"
-            }
+            return {"stdout": "", "stderr": "", "error": f"执行错误: {str(e)}"}
         finally:
-            # 确保临时文件被删除
             if temp_file:
                 try:
                     os.unlink(temp_file)
                 except Exception:
                     pass
-    
+
     async def _run_bash(self, booter, code: str, input_text: str = "") -> Dict:
         """使用 AstrBot 本地沙箱执行 Bash 代码"""
         try:
-            import base64
-            
-            # 构建命令
             if input_text:
-                # 使用 Base64 编码避免注入
                 input_b64 = base64.b64encode(input_text.encode('utf-8')).decode('utf-8')
                 command = f'echo "{input_b64}" | base64 -d | {code}'
             else:
                 command = code
             
-            # 执行命令
-            result = await booter.shell.exec(
-                command,
-                timeout=self.timeout_seconds
-            )
+            result = await booter.shell.exec(command, timeout=self.timeout_seconds)
             
             return {
                 "stdout": result.get("stdout", ""),
                 "stderr": result.get("stderr", ""),
                 "error": None
             }
-            
         except Exception as e:
             logger.error(f"执行 Bash 代码时出错: {e}")
-            return {
-                "stdout": "",
-                "stderr": "",
-                "error": f"执行错误: {str(e)}"
-            }
+            return {"stdout": "", "stderr": "", "error": f"执行错误: {str(e)}"}
 
     def _build_result_message(self, result: Dict) -> str:
         """构建结果消息"""
@@ -378,56 +202,52 @@ class MocodePlugin(Star):
                 lines.append("```")
             
             if stderr:
-                lines.append("📥 标准错误:")
+                lines.append("⚠️ 标准错误:")
                 lines.append("```")
                 lines.append(stderr)
                 lines.append("```")
             
             if not stdout and not stderr:
-                lines.append("✅ 执行完成，无输出")
+                lines.append("✅ 执行成功（无输出）")
 
-        return '\n'.join(lines)
+        return "\n".join(lines)
 
     @filter.command("code")
     async def cmd_code(self, event: AstrMessageEvent):
-        """运行代码"""
+        """code 命令 - 运行代码"""
+        message_text = event.message_str
+
+        # 检查权限
         if self.admin_only and not self._is_admin(event):
-            yield event.plain_result("⚠️ 只有管理员可以使用此命令")
+            await event.send("❌ 只有管理员可以使用此命令")
             return
 
-        message_text = event.message_str
-        
+        # 解析命令
         parsed = self._parse_command(message_text)
         if not parsed:
-            yield event.plain_result(
-                "❌ 命令格式错误\n\n"
-                "使用格式:\n"
-                "code [语言] [输入(可选)]\n"
-                "[代码]\n\n"
-                "示例:\n"
-                "code py\n"
-                "print(\"Hello World!\")\n\n"
-                "带输入示例:\n"
-                "code py 你好\n"
-                "print(input())"
-            )
+            await event.send("❌ 命令格式错误\n\n正确格式:\ncode [语言] [输入(可选)]\n[代码]\n\n例如:\ncode py\nprint('Hello World!')")
             return
 
         language = parsed["language"]
         input_text = parsed["input"]
         code = parsed["code"]
 
-        yield event.plain_result(f"⏳ 正在运行 {language} 代码...")
+        # 发送处理中消息
+        await event.send(f"🚀 正在运行 {language} 代码...")
 
+        # 运行代码
         result = await self._run_code(language, code, input_text)
-        result_msg = self._build_result_message(result)
 
-        yield event.plain_result(result_msg)
+        # 构建结果消息
+        result_message = self._build_result_message(result)
+
+        # 发送结果
+        await event.send(result_message)
 
     @filter.command("mocode")
     async def cmd_mocode(self, event: AstrMessageEvent):
         """Mocode 帮助"""
-        help_msg = """📢 Mocode 代码运行器使用说明 (v1.0.0)
+        help_msg = """📢 Mocode 代码运行器使用说明 (v1.0)
 
 【使用格式】
 code [语言] [输入(可选)]
@@ -442,9 +262,10 @@ code py 你好
 print(input())
 
 【支持的语言】
-Python(py), JavaScript(js), TypeScript(ts), Java, C, C++, Go(golang), Rust(rs),
-Ruby(rb), PHP, Bash(sh), Lua, Perl(pl), C#(cs), F#(fs), VB.NET(vb), R,
-Scala, Swift, Kotlin(kt), Clojure(clj), Haskell(hs), Erlang(erl),
-Elixir(ex), OCaml(ml), Julia, Nim, Crystal, D"""
-        
-        yield event.plain_result(help_msg)
+Python(py), JavaScript(js/node), Bash(sh/bash/shell)
+
+【配置项】
+- admin_only: 是否仅管理员可用
+- timeout_seconds: 执行超时时间（秒）
+"""
+        await event.send(help_msg)
