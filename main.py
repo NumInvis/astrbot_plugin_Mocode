@@ -238,84 +238,121 @@ class MocodePlugin(Star):
         }
 
     async def _run_code(self, language: str, code: str, input_text: str = "") -> Dict:
-        """运行代码 - 使用 Piston API"""
+        """运行代码 - 使用 Judge0 API"""
         if not self._session:
             return {"error": "HTTP 会话未初始化"}
 
-        # Piston API 语言版本映射
-        PISTON_VERSIONS = {
-            "python": "3.10.0",
-            "javascript": "18.15.0",
-            "typescript": "5.0.3",
-            "java": "15.0.2",
-            "c": "10.2.0",
-            "cpp": "10.2.0",
-            "go": "1.16.2",
-            "rust": "1.68.2",
-            "ruby": "3.0.1",
-            "php": "8.2.3",
-            "bash": "5.1.0",
-            "lua": "5.4.4",
-            "perl": "5.36.0",
-            "csharp": "6.12.0",
-            "fsharp": "5.0.0",
-            "vb.net": "16.8.0",
-            "r": "4.1.1",
-            "scala": "3.2.2",
-            "swift": "5.3.3",
-            "kotlin": "1.8.20",
-            "clojure": "1.10.3",
-            "haskell": "9.0.1",
-            "erlang": "23.0.0",
-            "elixir": "1.11.3",
-            "ocaml": "4.14.0",
-            "julia": "1.8.5",
-            "nim": "1.6.0",
-            "crystal": "1.8.1",
-            "d": "2.103.0"
+        # Judge0 API 语言 ID 映射
+        JUDGE0_LANGUAGES = {
+            "python": 71,      # Python 3.8.1
+            "javascript": 63,  # JavaScript (Node.js 12.14.0)
+            "typescript": 74,  # TypeScript 3.7.4
+            "java": 62,        # Java (OpenJDK 13.0.1)
+            "c": 50,           # C (GCC 9.2.0)
+            "cpp": 54,         # C++ (GCC 9.2.0)
+            "go": 60,          # Go (1.13.5)
+            "rust": 73,        # Rust (1.40.0)
+            "ruby": 72,        # Ruby (2.7.0)
+            "php": 68,         # PHP (7.4.1)
+            "bash": 46,        # Bash (5.0.0)
+            "lua": 64,         # Lua (5.3.5)
+            "perl": 85,        # Perl (5.28.1)
+            "csharp": 51,      # C# (Mono 6.6.0.161)
+            "fsharp": 87,      # F# (Mono 10.2.3)
+            "vb.net": 84,      # VB.NET (Mono 10.2.3)
+            "r": 80,           # R (4.0.0)
+            "scala": 81,       # Scala (2.13.2)
+            "swift": 83,       # Swift (5.2.3)
+            "kotlin": 78,      # Kotlin (1.3.70)
+            "clojure": 86,     # Clojure (1.10.1)
+            "haskell": 61,     # Haskell (GHC 8.8.1)
+            "erlang": 52,      # Erlang (22.2)
+            "elixir": 57,      # Elixir (1.9.4)
+            "ocaml": 65,       # OCaml (4.09.0)
+            "julia": 70,       # Julia (1.4.0)
+            "nim": 66,         # Nim (1.0.4)
+            "crystal": 67,     # Crystal (0.32.1)
+            "d": 56            # D (DMD 2.089.1)
         }
 
-        version = PISTON_VERSIONS.get(language, "latest")
+        language_id = JUDGE0_LANGUAGES.get(language)
+        if not language_id:
+            return {"stdout": "", "stderr": "", "error": f"不支持的语言: {language}"}
 
         payload = {
-            "language": language,
-            "version": version,
-            "files": [
-                {
-                    "content": code
-                }
-            ],
+            "language_id": language_id,
+            "source_code": code,
             "stdin": input_text,
-            "args": [],
-            "compile_timeout": 10000,
-            "run_timeout": self.timeout_seconds * 1000
+            "cpu_time_limit": self.timeout_seconds,
+            "memory_limit": 128000  # 128MB
         }
 
         try:
-            url = "https://emkc.org/api/v2/piston/execute"
+            # 使用 Judge0 公共 API（无需 API Key，有速率限制）
+            url = "https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=false&wait=true"
             
-            async with self._session.post(
-                url,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=self.timeout_seconds)
-            ) as response:
-                result = await response.json()
-                
-                if response.status == 200:
-                    # Piston API 返回格式不同
-                    run_result = result.get("run", {})
-                    compile_result = result.get("compile", {})
-                    
-                    stdout = run_result.get("stdout", "")
-                    stderr = run_result.get("stderr", "")
-                    
-                    # 如果有编译错误，也加上
-                    if compile_result and compile_result.get("stderr"):
-                        stderr = compile_result.get("stderr") + "\n" + stderr
-                    
-                    # 检查是否有运行错误
-                    if run_result.get("code") != 0 and not stdout and not stderr:
-                        stderr = run_result.get("output", "程序异常退出")
+            headers = {
+                "Content-Type": "application/json"
+            }
+            
+            # 尝试多个 Judge0 实例
+            urls = [
+                "https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=false&wait=true",
+                "http://165.227.115.19:2358/submissions?base64_encoded=false&wait=true"
+            ]
+            
+            for url in urls:
+                try:
+                    async with self._session.post(
+                        url,
+                        json=payload,
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=self.timeout_seconds + 5)
+                    ) as response:
+                        if response.status == 200:
+                            result = await response.json()
+                            
+                            stdout = result.get("stdout", "") or ""
+                            stderr = result.get("stderr", "") or ""
+                            compile_output = result.get("compile_output", "") or ""
+                            message = result.get("message", "")
+                            
+                            # 解码 base64
+                            import base64
+                            try:
+                                if stdout:
+                                    stdout = base64.b64decode(stdout).decode('utf-8', errors='replace')
+                                if stderr:
+                                    stderr = base64.b64decode(stderr).decode('utf-8', errors='replace')
+                                if compile_output:
+                                    compile_output = base64.b64decode(compile_output).decode('utf-8', errors='replace')
+                            except:
+                                pass
+                            
+                            # 合并编译错误和运行错误
+                            if compile_output:
+                                stderr = compile_output + "\n" + stderr
+                            
+                            # 检查状态
+                            status_id = result.get("status", {}).get("id", 0)
+                            if status_id != 3:  # 3 = Accepted
+                                if message:
+                                    stderr = message + "\n" + stderr
+                            
+                            return {
+                                "stdout": stdout,
+                                "stderr": stderr,
+                                "error": None
+                            }
+                except Exception as e:
+                    continue
+            
+            return {"stdout": "", "stderr": "", "error": "所有 Judge0 API 实例均不可用"}
+            
+        except asyncio.TimeoutError:
+            return {"stdout": "", "stderr": "", "error": "执行超时"}
+        except Exception as e:
+            return {"stdout": "", "stderr": "", "error": f"请求错误: {str(e)}"}
                     
                     return {
                         "stdout": stdout,

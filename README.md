@@ -1,6 +1,6 @@
 # Mocode - AstrBot 在线运行代码插件
 
-支持多种编程语言，运行于 [Piston API](https://piston.readthedocs.io/)
+支持多种编程语言，运行于 [Judge0 API](https://judge0.com/)
 
 ## 来源与致敬
 
@@ -21,7 +21,7 @@
 - `admin_only`: 是否仅管理员使用（默认：false）
 - `timeout_seconds`: 代码执行超时时间（默认：30秒）
 
-**注意**：本插件使用 Piston 公共 API (https://emkc.org/api/v2/piston)，无需配置 API Token
+**注意**：本插件使用 Judge0 公共 API，无需配置 API Token（有速率限制）
 
 ## 使用
 
@@ -66,7 +66,7 @@ Elixir(ex), OCaml(ml), Julia, Nim, Crystal, D
 ## 致谢
 
 - 原项目：[nonebot-plugin-code](https://github.com/yzyyz1387/nonebot_plugin_code)
-- API 服务：[Piston](https://piston.readthedocs.io/)
+- API 服务：[Judge0](https://judge0.com/)
 
 ## License
 
