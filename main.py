@@ -219,13 +219,13 @@ class MocodePlugin(Star):
 
         # 检查权限
         if self.admin_only and not self._is_admin(event):
-            await event.send("❌ 只有管理员可以使用此命令")
+            yield event.make_result().message("❌ 只有管理员可以使用此命令")
             return
 
         # 解析命令
         parsed = self._parse_command(message_text)
         if not parsed:
-            await event.send("❌ 命令格式错误\n\n正确格式:\ncode [语言] [输入(可选)]\n[代码]\n\n例如:\ncode py\nprint('Hello World!')")
+            yield event.make_result().message("❌ 命令格式错误\n\n正确格式:\ncode [语言] [输入(可选)]\n[代码]\n\n例如:\ncode py\nprint('Hello World!')")
             return
 
         language = parsed["language"]
@@ -233,7 +233,7 @@ class MocodePlugin(Star):
         code = parsed["code"]
 
         # 发送处理中消息
-        await event.send(f"🚀 正在运行 {language} 代码...")
+        yield event.make_result().message(f"🚀 正在运行 {language} 代码...")
 
         # 运行代码
         result = await self._run_code(language, code, input_text)
@@ -242,7 +242,7 @@ class MocodePlugin(Star):
         result_message = self._build_result_message(result)
 
         # 发送结果
-        await event.send(result_message)
+        yield event.make_result().message(result_message)
 
     @filter.command("mocode")
     async def cmd_mocode(self, event: AstrMessageEvent):
@@ -268,4 +268,4 @@ Python(py), JavaScript(js/node), Bash(sh/bash/shell)
 - admin_only: 是否仅管理员可用
 - timeout_seconds: 执行超时时间（秒）
 """
-        await event.send(help_msg)
+        yield event.make_result().message(help_msg)
